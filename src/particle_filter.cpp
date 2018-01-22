@@ -52,7 +52,6 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
     particle.theta = sample_theta;
     particle.weight = 1.0f;
 
-    weights.push_back(particle.weight);
     particles.push_back(particle);
   }
   cout << num_particles << " particles created" << endl;
@@ -69,11 +68,11 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
   //  http://www.cplusplus.com/reference/random/default_random_engine/
 
   // Avoid division by 0
-  if (fabs(yaw_rate < 0.00001)) {
+  if (fabs(yaw_rate) < 1.0e-6) {
     if (yaw_rate < 0) {
-      yaw_rate = -0.00001;
+      yaw_rate = -1.0e-6;
     } else {
-      yaw_rate = 0.00001;
+      yaw_rate = 1.0e-6;
     }
   }
 
@@ -94,10 +93,6 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
     double y_t0 = particle.y;
     double theta_t0 = particle.theta;
 
-    // cout << "before particle update:" << endl;
-    // cout << "x, y, theta=" << x_t0 << "," << y_t0 << "," << theta_t0 << endl;
-    // cout << "noise x, y, theta=" << noise_x(gen) << "," << noise_y(gen) << "," << noise_y(gen) << endl;
-
     double x_t1_with_noise =
         x_t0 + velocity / yaw_rate * (sin(theta_t0 + yaw_rate * delta_t) - sin(theta_t0)) + noise_x(gen);
     double y_t1_with_noise =
@@ -108,9 +103,6 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
     particle.x = x_t1_with_noise;
     particle.y = y_t1_with_noise;
     particle.theta = theta_t1_with_noise;
-
-    // cout << "after particle update:" << endl;
-    // cout << "x, y, theta=" << particle.x << "," << particle.y << "," << particle.theta << endl;
   }
 }
 
@@ -134,6 +126,11 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
   //   and the following is a good resource for the actual equation to implement (look at equation
   //   3.33
   //   http://planning.cs.uiuc.edu/node99.html
+
+  // Clear weight vector
+  weights.clear();
+
+  // Standard diviations
   double std_landmark_x = std_landmark[0];
   double std_landmark_y = std_landmark[1];
 
@@ -146,9 +143,7 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
   long double total_weight = 0;
   for (int i = 0; i < num_particles; i++) {
     Particle &particle = particles[i];
-
     long double weight = 1.0;
-    // cout << observations.size() << " observations..." << endl;
 
     for (int j = 0; j < observations.size(); j++) {
       LandmarkObs obs = observations[j];
@@ -173,31 +168,32 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
         }
       }
 
-      // cout << "nearest landmark id: " << nearest_landmark.id_i << endl;
-
       // Get differnce between prediction and matched landmark
       double x_diff = pred_x - nearest_landmark.x_f;
       double y_diff = pred_y - nearest_landmark.y_f;
 
       // Observation weight
-      weight = (1 / (2 * M_PI * covar_landmark_xy)) *
-               exp(-(pow(x_diff, 2) / (2 * var_landmark_x) + (pow(y_diff, 2) / (2 * var_landmark_y))));
-//      cout << "x_diff:" << x_diff << " y_diff:" << y_diff << " std_x:" << std_landmark_x << " std_y:" << std_landmark_y
-//           << " weight:" << weight << endl;
+      double obs_weight = (1 / (2 * M_PI * covar_landmark_xy)) *
+                          exp(-(pow(x_diff, 2) / (2 * var_landmark_x) + (pow(y_diff, 2) / (2 * var_landmark_y))));
 
       // Total prob
-      weight *= weight;
+      if (obs_weight == 0) {
+        weight *= 1.0e-200;
+      } else {
+        weight *= obs_weight;
+      }
     }
     // Assign weight to particle
-    // cout << "particle final weight:" << weight << endl;
     particle.weight = double(weight);
+
+    // Store in weights vector
+    weights.push_back(double(weight));
 
     // Add up to the total weight
     total_weight += weight;
-
   }
 
-  // Normalize particle weights
+//  // Normalize particle weights
 //  cout << "total weight of all particles:" << total_weight << endl;
 //  for (int i = 0; i < num_particles; i++) {
 //    // Update particle weight
